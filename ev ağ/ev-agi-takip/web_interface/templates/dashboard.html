@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+{% block title %}Panel — Ev Ağı Takip{% endblock %}
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+{% endblock %}
+{% block body %}
+<header class="topbar">
+  <div class="brand">Ev Ağı Takip</div>
+  <div class="user">
+    <span>{{ username }}</span>
+    <a href="{{ url_for('logout') }}" class="btn-link">Çıkış</a>
+  </div>
+</header>
+
+<main class="dashboard">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+      <p class="{{ 'success' if category == 'success' else 'error' }}">{{ message }}</p>
+    {% endfor %}
+  {% endwith %}
+
+  {% if not agent_connected %}
+  <div class="alert-banner">
+    <strong>Agent bağlı değil.</strong> <code>.\run-server.ps1</code> + <code>.\run-agent.ps1</code>
+  </div>
+  {% endif %}
+
+  {% if alert_devices %}
+  <div class="alert-banner alert-danger">
+    <strong>Uyarı:</strong> {{ alert_devices|length }} cihaz eşik üstü ({{ alert_threshold }} GB):
+    {% for d in alert_devices[:5] %}
+      {{ d.label or d.hostname or d.ip }}{% if not loop.last %}, {% endif %}
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="info-banner">
+    {% if modem_connected %}
+    <strong>Modem (HGW) bağlı.</strong> Ev cihazlarının GB verisi modemden gelmeye çalışılıyor.
+    {% else %}
+    <strong>Modem verisi yok.</strong> <code>modem.env</code> + <code>EV_AGI_MODEM_TYPE=hgw</code>
+    {% endif %}
+    Wi-Fi listesi çoğaltıcı (ME30) ve diğer komşu ağları gösterir; GB için modem şart.
+  </div>
+
+  <section class="stats-row">
+    <article class="stat-card">
+      <span class="stat-label">Toplam (tüm zaman)</span>
+      <span class="stat-value">{{ total_gb }} GB</span>
+    </article>
+    <article class="stat-card">
+      <span class="stat-label">Bugün (raporlar)</span>
+      <span class="stat-value">{{ today_gb }} GB</span>
+    </article>
+    <article class="stat-card">
+      <span class="stat-label">Cihaz</span>
+      <span class="stat-value">{{ devices|length }}</span>
+    </article>
+    <article class="stat-card">
+      <span class="stat-label">Wi-Fi ağ</span>
+      <span class="stat-value">{{ wifi_networks|length }}</span>
+    </article>
+  </section>
+
+  <section class="panel panel-inline">
+    <h2>Uyarı ayarı</h2>
+    <form method="post" action="{{ url_for('dashboard_settings') }}" class="inline-form">
+      <label>Cihaz başına eşik (GB)</label>
+      <input type="number" name="alert_gb" step="0.1" min="0.1" value="{{ alert_threshold }}">
+      <button type="submit" class="btn-small">Kaydet</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Ağdaki cihazlar</h2>
+      <span class="panel-meta">İsim düzenlenebilir</span>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>IP</th>
+            <th>MAC</th>
+            <th>Ad (özel)</th>
+            <th class="col-num">GB</th>
+            <th>Kaynak</th>
+            <th>Son görülme</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for d in devices %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td>{{ d.ip }}</td>
+            <td><code>{{ d.mac }}</code></td>
+            <td>
+              <form method="post" action="{{ url_for('device_label', device_id=d.id) }}" class="label-form">
+                <input type="text" name="label" value="{{ d.label or '' }}" placeholder="{{ d.hostname or 'İsim ver' }}">
+                <button type="submit" class="btn-small">OK</button>
+              </form>
+              {% if d.hostname and d.hostname != d.label %}
+              <small class="muted">{{ d.hostname }}</small>
+              {% endif %}
+            </td>
+            <td class="col-num">{{ "%.3f"|format((d.total_bytes or 0) / (1024**3)) }}</td>
+            <td>
+              {% if d.ip in monitor_ips and (d.total_bytes or 0) > 0 %}
+              <span class="badge badge-ok">Bu PC</span>
+              {% elif modem_connected and (d.total_bytes or 0) > 0 %}
+              <span class="badge badge-ok">Modem</span>
+              {% elif (d.total_bytes or 0) > 0 %}
+              <span class="badge badge-warn">Eski</span>
+              {% else %}
+              <span class="badge badge-muted">Listede</span>
+              {% endif %}
+            </td>
+            <td>{{ d.last_seen.strftime('%d.%m.%Y %H:%M') if d.last_seen else '—' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7" class="empty">Cihaz yok — agent çalıştırın.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Wi-Fi ağları (C — ME30 / komşu)</h2>
+      <span class="panel-meta">{{ wifi_networks|length }} ağ</span>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>SSID</th>
+            <th>BSSID</th>
+            <th>Sinyal %</th>
+            <th>Kanal</th>
+            <th>Güvenlik</th>
+            <th>Not</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for w in wifi_networks %}
+          <tr>
+            <td>{{ w.ssid }}</td>
+            <td><code>{{ w.bssid }}</code></td>
+            <td class="col-num">{{ w.signal }}</td>
+            <td>{{ w.channel or '—' }}</td>
+            <td>{{ w.security or '—' }}</td>
+            <td>
+              {% if w.likely_extender %}
+              <span class="badge badge-ok">Cogaltici?</span>
+              {% else %}—{% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="empty">Wi-Fi taraması yok — agent bir tur bekleyin.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Trafik geçmişi</h2>
+    </div>
+    <div class="table-wrap table-wrap-short">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Tarih</th>
+            <th>IP</th>
+            <th class="col-num">GB</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for log in logs[:30] %}
+          <tr>
+            <td>{{ log.recorded_at.strftime('%d.%m %H:%M') if log.recorded_at else '—' }}</td>
+            <td>{{ log.ip }}</td>
+            <td class="col-num">{{ "%.4f"|format(log.gb_total) }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3" class="empty">Kayıt yok</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel panel-chart">
+    <h2>Özet grafik</h2>
+    <canvas id="trafficChart" height="100"></canvas>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.CHART_LABELS = {{ chart_labels | tojson }};
+  window.CHART_VALUES = {{ chart_values | tojson }};
+</script>
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+{% endblock %}

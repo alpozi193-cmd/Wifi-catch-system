@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Kayıt ol — Ev Ağı Takip{% endblock %}
+{% block body %}
+<main class="login-page">
+  <section class="login-card">
+    <h1>Kayıt ol</h1>
+    <p class="subtitle">Yeni hesap oluşturun</p>
+    {% if error %}
+    <p class="error">{{ error }}</p>
+    {% endif %}
+    <form method="post" action="{{ url_for('register') }}">
+      <label>
+        Kullanıcı adı
+        <input type="text" name="username" required minlength="3" maxlength="80" autocomplete="username"
+               value="{{ request.form.get('username', '') }}">
+      </label>
+      <label>
+        Şifre
+        <input type="password" name="password" required minlength="6" autocomplete="new-password">
+      </label>
+      <label>
+        Şifre (tekrar)
+        <input type="password" name="password2" required minlength="6" autocomplete="new-password">
+      </label>
+      <button type="submit" class="btn-primary">Kayıt ol</button>
+    </form>
+    <p class="auth-footer">
+      Zaten hesabınız var mı? <a href="{{ url_for('login') }}">Giriş yap</a>
+    </p>
+  </section>
+</main>
+{% endblock %}

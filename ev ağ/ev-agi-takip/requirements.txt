@@ -1,0 +1,5 @@
+flask>=3.0
+sqlalchemy>=2.0
+werkzeug>=3.0
+requests>=2.31
+scapy>=2.5
